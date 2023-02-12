@@ -200,24 +200,15 @@ double XSec(double Enu, double El, double Costheta, double Phi, double * Q2p){
   // Apply given scaling factor
   xsec *= fXSecScale;
   
-    // Number of scattering centers in the target
-    //xsec *= 18; // for argon
-
-
+  // Number of scattering centers in the target
+  xsec *= 18; // for argon
   
-
-    // Apply given scaling factor
-    xsec *= fXSecScale;
-
-    // Number of scattering centers in the target
-    xsec *= 18; // for argon
-
-    
-    //    std::cout << "xsec: " << xsec << " GeV^{-2} at Q2: " << Q2 << " GeV^2" << std::endl;
-    //  std::cout << "xsec: " << xsec * perGeV2_to_b * barn_to_cm2 << " cm^2/GeV^2 at Q2: " << Q2 << " GeV^2" << std::endl;
-
-    // Set Q2
-    *Q2p = Q2;
+  
+  //    std::cout << "xsec: " << xsec << " GeV^{-2} at Q2: " << Q2 << " GeV^2" << std::endl;
+  //  std::cout << "xsec: " << xsec * perGeV2_to_b * barn_to_cm2 << " cm^2/GeV^2 at Q2: " << Q2 << " GeV^2" << std::endl;
+  
+  // Set Q2
+  *Q2p = Q2;
 
   return xsec;
 
