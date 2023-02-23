@@ -16,6 +16,8 @@
 #include <TParticle.h>
 #include <TParticlePDG.h>
 
+#include <iostream>
+
 TDatabasePDG * fPDGdb = new TDatabasePDG();
 TRandom2 * ran = new TRandom2();
 
@@ -70,6 +72,162 @@ double FermiMomentumForIsoscalarNucleonParametrization(double A){
   return (0.27+x*(-1.12887857491+x*(9.72670908033-39.53095724456*x)));
 }
 
+double FmArea(double alpha, double beta, double kf, double pmax)
+{
+// Adapted from NeuGEN's fm_area() used in r_factor()
+
+  double kf3 = TMath::Power(kf,3.);
+  double sum = 4.*kPi* (alpha * kf3/3. + beta*(1./kf - 1./pmax));
+  return sum;
+}
+
+double FmI2(double alpha, double beta,
+               double a, double b,  double kFi, double /*kFf*/, double /*q*/)
+{
+// Adapted from NeuGEN's fm_integral2() used in r_factor()
+
+  double integral2 = 0;
+
+  if(kFi < a) {
+     integral2 = beta * (1./a - 1./b);
+
+  } else if(kFi > b) {
+     double a3 = TMath::Power(a,3);
+     double b3 = TMath::Power(b,3);
+     integral2 = alpha/3. * (b3 - a3);
+
+  } else {
+     double a3   = TMath::Power(a,3);
+     double kFi3 = TMath::Power(kFi,3);
+
+     integral2 = alpha/3. * (kFi3 - a3) + beta * (1./kFi - 1./b);
+  }
+  return integral2;
+}
+
+
+double FmI1(double alpha, double beta, 
+                       double a, double b,  double kFi, double kFf, double q)
+{
+// Adapted from NeuGEN's fm_integral1() used in r_factor()
+
+  double f=0;
+
+  double q2   = TMath::Power(q,  2);
+  double a2   = TMath::Power(a,  2);
+  double b2   = TMath::Power(b,  2);
+  double kFi2 = TMath::Power(kFi,2);
+  double kFf2 = TMath::Power(kFf,2);
+
+  if(kFi < a) {
+     double lg = TMath::Log(b/a);
+
+     f = -beta * (kFf2-q2)/(4.*q) * (1./a2 - 1./b2) + beta/(2.*q) * lg;
+
+  } else if (kFi > b) {
+     double a4 = TMath::Power(a2,2);
+     double b4 = TMath::Power(b2,2);
+
+     f = - (kFf2-q2) * alpha/(4.*q) * (b2-a2) + alpha/(8.*q) * (b4-a4);
+
+  } else {
+     double a4   = TMath::Power(a2,2);
+     double kFi4 = TMath::Power(kFi2,2);
+     double lg   = TMath::Log(b/kFi);
+
+     f = - alpha*(kFf2-q2)/(4.*q)*(kFi2-a2) + alpha/(8.*q)*(kFi4 - a4)
+         - beta*(kFf2-q2)/(4.*q)*(1./kFi2 - 1./b2) + beta/(2.*q)*lg;
+  }
+
+  double integral2 = FmI2(alpha,beta,a,b,kFi,kFf,q);
+  double integral1 = integral2 + f;
+  
+  return integral1;
+}
+
+
+// Compute nuclear suppression factor - from GENIE
+// q2: momentum transfer
+// Mn: hit nucleon mass
+// pmax: Fermi momentum cutoff
+double NuclQELXSecSuppression(int A, int Z, double q2, double Mn, double pmax = 0.5){
+  double R = 1;
+
+  double kFi, kFf;
+  https://github.com/GENIE-MC/Generator/blob/master/config/FermiMomentumTables.xml
+  //      <!-- Ar40  --> <kf nucleus_pdgc="1000180400"> <p> 0.242 </p> <n> 0.259 </n> </kf> 
+  //  kFi = FermiMomentumForIsoscalarNucleonParametrization(mAr_A);
+  //  kFf = FermiMomentumForIsoscalarNucleonParametrization(mAr_A);
+  kFi = 0.259;// neutron
+  kFf = 0.242;// proton
+  
+  // LFG
+  /* double hbarc = kLightSpeed*kPlankConstant/genie::units::fermi; */
+  
+  /* // kFi */
+  /* double numNuci = A-Z; // N */
+  /* kFi = TMath::Power(3*kPi2*numNuci* */
+  /* 		     genie::utils::nuclear::Density(radius,A),1.0/3.0) *hbarc; */
+  /* // kFi */
+  /* bool is_p_f = pdg::IsProton(final_nucleon_pdgc); */
+  /* double numNucf = (is_p_f) ? (double)tgt->Z():(double)tgt->N(); */
+  /* kFf = TMath::Power(3*kPi2*numNucf* */
+  /* 		     genie::utils::nuclear::Density(radius,A),1.0/3.0) *hbarc; */
+  
+
+  // Compute magnitude of the 3-momentum transfer to the nucleon
+  double Mn2    = Mn*Mn;
+  double magq2  = q2 * (0.25*q2/Mn2 - 1.);
+  double q      = TMath::Sqrt(TMath::Max(0.,magq2));
+
+  double kfa   = kFi * 2./kPi;
+  double kfa2  = TMath::Power(kfa,2);
+  double kFi4  = TMath::Power(kFi,4);
+  double rkf   = 1./(1. - kFi/4.);
+  double alpha = 1. - 6.*kfa2;
+  double beta  = 2. * rkf * kfa2 * kFi4;
+
+  double fm_area = FmArea(alpha,beta,kFi,pmax);
+
+  if (q <= kFf) {
+
+     double p1   = kFf - q;
+     double p2   = kFf + q;
+     double fmi1 = FmI1(alpha,beta,p1,p2,  kFi,kFf,q);
+     double fmi2 = FmI2(alpha,beta,p2,pmax,kFi,kFf,q);
+
+     R = 2*kPi * (fmi1 + 2*fmi2) / fm_area;
+
+  } else if (q > kFf && q <= (pmax-kFf)) {
+
+     double p1    = q - kFf;
+     double p2    = q + kFf;
+     double fmi1  = FmI1(alpha,beta, p1, p2,   kFi, kFf,q);
+     double fmi2a = FmI2(alpha,beta, 0., p1,   kFi, kFf,q);
+     double fmi2b = FmI2(alpha,beta, p2, pmax, kFi, kFf,q);
+
+     R = 2*kPi * (fmi1 + 2*(fmi2a+fmi2b)) / fm_area;
+
+  } else if (q > (pmax-kFf) && q <= (pmax+kFf)) {
+
+     double p1   = q - kFf;
+     double fmi2 = FmI2(alpha,beta, 0.,p1,  kFi,kFf,q);
+     double fmi1 = FmI1(alpha,beta, p1,pmax,kFi,kFf,q);
+
+     R = 2*kPi * (2.*fmi2 + fmi1) / fm_area;
+
+  } else if (q > (pmax+kFf)) {
+     R = 1.; 
+  } else {
+    std::cerr << "Illegal input q = " << q << std::endl;
+     exit(1);
+  }
+  
+  return R;
+  
+
+}
+
 
 
 // Nucleon at rest cross section as a function of the
@@ -78,7 +236,7 @@ double FermiMomentumForIsoscalarNucleonParametrization(double A){
 // - angle between neutrino and outgoing lepton in the Lab frame
 // - phi angle of the lepton
 // - Q2p is just a pointer to return the calculated Q2
-double XSec(double Enu, double El, double Costheta, double Phi, double * Q2p){
+double DSigma_dQ2_XSec(double Enu, double El, double Costheta, double Phi, double * Q2p){
 
   // We  assume to numerically evaluate the LL-Smith cross section
   // In the nucleon at rest frame to simplfiy
@@ -201,7 +359,7 @@ double XSec(double Enu, double El, double Costheta, double Phi, double * Q2p){
   xsec *= fXSecScale;
   
   // Number of scattering centers in the target
-  xsec *= 18; // for argon
+  xsec *= mAr_Z; 
   
   
   //    std::cout << "xsec: " << xsec << " GeV^{-2} at Q2: " << Q2 << " GeV^2" << std::endl;
@@ -416,6 +574,21 @@ TLorentzVector generateNucleonBodekRitchie(TH1D * prob, double * fRemovalE){
  
   *fRemovalE = fCurrRemovalEnergy;
 
+  // Or set Manually for Argon?
+  //  https://github.com/GENIE-MC/Generator/blob/master/config/G18_01b/G18_01b_02_11a/CommonParam.xml
+    /* <param type="double" name="RFG-NucRemovalE@Pdg=1000030060">  0.0170 </param> <!-- Li6    --> */
+    /* <param type="double" name="RFG-NucRemovalE@Pdg=1000060120">  0.0250 </param> <!-- C12    --> */
+    /* <param type="double" name="RFG-NucRemovalE@Pdg=1000080160">  0.0270 </param> <!-- O16    --> */
+    /* <param type="double" name="RFG-NucRemovalE@Pdg=1000120240">  0.0320 </param> <!-- Mg24   --> */
+    /* <param type="double" name="RFG-NucRemovalE@Pdg=1000180400">  0.0295 </param> <!-- Ar40   --> */
+    /* <param type="double" name="RFG-NucRemovalE@Pdg=1000200400">  0.0280 </param> <!-- Ca40   --> */
+    /* <param type="double" name="RFG-NucRemovalE@Pdg=1000220480">  0.0300 </param> <!-- Ti48  --> */
+    /* <param type="double" name="RFG-NucRemovalE@Pdg=1000260560">  0.0360 </param> <!-- Fe56   --> */
+    /* <param type="double" name="RFG-NucRemovalE@Pdg=1000280580">  0.0360 </param> <!-- Ni58   --> */
+    /* <param type="double" name="RFG-NucRemovalE@Pdg=1000822080">  0.0440 </param> <!-- Pb208  --> */
+
+  // *fRemovalE = 0.0295;
+  
   TLorentzVector nucl;
   TParticlePDG * prot = fPDGdb->GetParticle(2212);
   TParticlePDG * neut = fPDGdb->GetParticle(2112);  
@@ -464,11 +637,11 @@ void generatePS_NucleonFermiMotion_Weighted(){
   
     // Here we get first the final-state nucleon 4-mom
     // after fermi motion
-    //TLorentzVector pNf = PFermiMotion();// Benhard/Fantoni parametrization...
+
 
     double fRemovalE = 0;
     double * pfRemovalE = &fRemovalE;
-    // Initial nucleon 4-momentum (lab frame) and removal energy from Bodek Ritchie
+    // Initial nucleon 4-momentum (nucleus rest frame) and removal energy from Bodek Ritchie
     TLorentzVector pNi = generateNucleonBodekRitchie(probDistBR, pfRemovalE);
     TVector3 p3Ni = pNi.Vect();
     
@@ -497,32 +670,47 @@ void generatePS_NucleonFermiMotion_Weighted(){
     pNi.SetE( ENi );
 
     //--------------------------------------------------
-    // Now we need to boost the neutrino into the
-    // rest frame of the nucleon where the LL-Smith is evaluated
+    // NOTE: We have various reference frames to consider:
+    // 1) Lab frame:
+    // - in which the neutrino 4-mom is p(0, 0, Enu, Enu)
+    // - and the nucleus is at rest with a 4 mom pN(0, 0, 0, MN)
+    // - but in which the nucleons are in Fermi motion
+    //
+    // 2) Nucleon at rest frame: (in which the Llewellyn-Smith
+    // CC QEL diff. cross-section is calculated, i.e. where the nucleon is 'free')
+    // - in this frame the nucleon 4-mom is p(0, 0, 0, Mn) as it is at rest
+    // - but the neutrino will have an energy distribution
+    //
+    // 3) The beam + nucleon COM frame:
+    // - In this frame the outgoing nucleon and outgoing lepton
+    // are back to back
+    // - So, if we fix the final state lepton kinematics, then
+    // this constrains the outgoing nucleon kinematics in this frame.
 
-    // Beam in the Lab frame
+    
+    // Neutrino beam in the Lab frame
     TLorentzVector beam(0.0,0.0, mBeam, mBeam);//GeV (beam "particle")
 
-    // Get beta for a Lorentz boost from the Lab frame to the Nucleon at rest COM frame
+    // Get beta for a Lorentz boost from the Lab frame to the Nucleon at rest frame
     // where the target nucleon is at rest, but the beam energy has some distribution
-    TVector3 beta_COM_to_lab = (pNi).BoostVector();
-    TVector3 beta_lab_to_COM = -beta_COM_to_lab;
+    TVector3 beta_nRest_to_lab = (pNi).BoostVector();// pNi is the nucleon momentum from Bodek-Ritchie model
+    TVector3 beta_lab_to_nRest = -beta_nRest_to_lab;
 
     // Also get the Lorentz boost beta for the beam+target COM frame
-    // in which the beam + target and the outgoing lepton + outgoing nucleon
+    // in which the outgoing lepton and outgoing nucleon
     // are back-to-back (to be used later)
     TVector3 beta_beamtargetCOM_to_lab = (pNi+beam).BoostVector();
     TVector3 beta_lab_to_beamtargetCOM = -beta_beamtargetCOM_to_lab;
 
     // Let's boost from the Lab frame to the Nucleon at rest frame
     // where we can evaluate the LL-Smith cross section
-    TLorentzVector beamCOM = TLorentzVector( beam );
-    beamCOM.Boost( beta_lab_to_COM );
-    TLorentzVector nucleonCOM = TLorentzVector( pNi );
-    nucleonCOM.Boost( beta_lab_to_COM );
+    TLorentzVector beam_nRest = TLorentzVector( beam );
+    beam_nRest.Boost( beta_lab_to_nRest );
+    TLorentzVector nucleon_nRest = TLorentzVector( pNi );
+    nucleon_nRest.Boost( beta_lab_to_nRest );
     
     double Enu_Lab = beam.E();
-    double Enu = beamCOM.E();
+    double Enu = beam_nRest.E();
 
     // Check
     /* std::cout << "nu Lab: " << std::endl; */
@@ -537,15 +725,16 @@ void generatePS_NucleonFermiMotion_Weighted(){
 
 
     
-    // In the COM frame the target is at rest
+    // Generate the random PS in frame in which the nucleon is at rest
     TLorentzVector target(0.0, 0.0, 0.0, mNeutron);// GeV
-    
-    TLorentzVector W = beamCOM + target;
+
+    // The beam neutrino is already boosted into this frame
+    TLorentzVector W = beam_nRest + target;
 
     double lepMass = mMuon;// mMuon or mElectron or mTau
     Double_t masses[2] = { mProton , lepMass};
 
-    // Generate the Decay in the target nucleon at rest frame
+    // Generate the Decay in then nucleon at rest frame
     TGenPhaseSpace event;
     //  event.SetDecay(W, 2, masses, "Fermi");
     bool allowed = event.SetDecay(W, 2, masses);
@@ -554,7 +743,7 @@ void generatePS_NucleonFermiMotion_Weighted(){
     //    std::cout << "weight: " << weight << ", allowed: " << allowed << std::endl;
     TLorentzVector *pProton = event.GetDecay(0);
     TLorentzVector *pMuon  = event.GetDecay(1);
-    double El = pMuon->E(); // lepton energy at the target nucleon at rest frame
+    double El = pMuon->E(); // lepton energy at the nucleon at rest frame
 
     //------------------------------ 
     // Before moving forward, let's check the outgoing nucleon momentum
@@ -565,14 +754,21 @@ void generatePS_NucleonFermiMotion_Weighted(){
     double kF = FermiMomentumForIsoscalarNucleonParametrization(mAr_A);
 
     // We need to evaluate for this the outgoing nucleon momentum in the Lab frame
-    // We have the outgoing lepton in the Lab frame:
+    // We have the outgoing lepton in the nucleon-at-rest frame:
     // We know that the final-state nucleon will have an equal and opposite 3-momentum
     // in the beam+target COM frame and will be on the mass shell.
-    // But for this we have to boost the system from the Lab frame to the beam+target COM frame
-    TLorentzVector outlepton_COM = TLorentzVector( *pMuon );
+    // But for this we have to boost the system from the nucleon-at-rest frame
+    // to the beam+target COM frame in 2 steps (nucleon at rest -> Lab -> beam+targetCOM)
+    TLorentzVector outlepton_COM = TLorentzVector( *pMuon ); // pMuon is at the nucleon at rest frame
+    // first boost it to the nucleus at rest( Lab) frame
+    outlepton_COM.Boost( beta_nRest_to_lab );
+    // then boost it to the beam+target COM frame
     outlepton_COM.Boost( beta_lab_to_beamtargetCOM );
+
+    // In this beam+target COM frame the outgoing nucleon and lepton are back-to-back
     TLorentzVector outNucleon(-1*outlepton_COM.Px(),-1*outlepton_COM.Py(),-1*outlepton_COM.Pz(),
 			      TMath::Sqrt(outlepton_COM.P()*outlepton_COM.P() + mNf*mNf));
+
     // Now boost the outgoing nucleon into the Lab frame
     outNucleon.Boost(beta_beamtargetCOM_to_lab);
 
@@ -585,7 +781,7 @@ void generatePS_NucleonFermiMotion_Weighted(){
     //------------------------------ 
     // Evaluate the diff. xsec dsigma/dQ2 at the random throw
     // in the target nucleon at rest frame
-    TVector3 beam3V = beamCOM.Vect();
+    TVector3 beam3V = beam_nRest.Vect();
     TVector3 lepton3V = pMuon->Vect();
     double Costheta = TMath::Cos(lepton3V.Angle(beam3V));
 
@@ -599,11 +795,14 @@ void generatePS_NucleonFermiMotion_Weighted(){
     // measure the phi now for the rotated lepton momentum vector
     double phi = lepton3V.Phi();
 
-    // finally evaluate the Xsec in the target nucleon at rest frame
+    // finally evaluate the Xsec in the nucleon at rest frame
     double Q2 = 0;// dummy
     double * Q2p = &Q2; // dummy
-    double xsec = XSec(Enu, pMuon->E(), Costheta, phi, Q2p);   // Q2p is dummy
-
+    double xsec = DSigma_dQ2_XSec(Enu, El, Costheta, phi, Q2p);   // Q2p is dummy
+    double R = NuclQELXSecSuppression(mAr_A, mAr_Z, -Q2, mNi,  0.5);
+    //  std::cout << "Q2: " <<  Q2 << ", Supression: " << R << std::endl;
+    xsec = R*xsec;
+    
     //--------------------------------------------------
     // Now, we we apply the Rejection Sampling algorithm
 
@@ -623,14 +822,17 @@ void generatePS_NucleonFermiMotion_Weighted(){
     
     double xsec_max = 0;
     
-    // Now scan through angles coarsely
+    // Now scan through angles coarsely with Enu and El fixed
     for (int itheta = 0; itheta < N_theta; itheta++){
       double costh_ = costh_range_min + itheta * costh_increment;
       for (int iphi = 0; iphi < N_phi; iphi++) { // Scan around phi
 	double phi_ = phi_range_min + iphi * phi_increment;
 	double Q2_ = 0;// dummy
 	double * Q2p_ = &Q2_; // dummy
-	double xs = XSec(Enu, pMuon->E(), costh_, phi_, Q2p_);   // Q2p is dummy
+	double xs = DSigma_dQ2_XSec(Enu, El, costh_, phi_, Q2p_);   // Q2p is dummy
+	R = NuclQELXSecSuppression(mAr_A, mAr_Z, -Q2_, mNi,  0.5);
+	//  std::cout << "Q2: " <<  Q2 << ", Supression: " << R << std::endl;
+	xs = R*xs;
 	
 	if (xs > xsec_max){
 	  phi_at_xsec_max = phi_;
@@ -657,30 +859,31 @@ void generatePS_NucleonFermiMotion_Weighted(){
       std::cout << "\r " << nEv << ", RemovalE: " << Eb <<  std::flush;
       
       // OK, Now we need to boost back the particle(s) into the Lab frame,
-      // where the target nucleon is not at rest, but the beam is (0, 0, beam, beam)
-      pMuon->Boost(beta_COM_to_lab);
+      // where the target nucleon is not at rest, but the beam and Nucleus is
+      TLorentzVector pMuon_Lab = TLorentzVector(*pMuon);
+      pMuon_Lab.Boost(beta_nRest_to_lab);
 
       // Need to recalculate Q2 in the Lab frame
-      TLorentzVector qP4 = beam - (*pMuon);
+      TLorentzVector qP4 = beam - (pMuon_Lab);
       double Q2Lab = -1. * qP4.Mag2();      
       
-      double pt_muon = TMath::Sqrt(pMuon->Px()*pMuon->Px() + pMuon->Py()*pMuon->Py());
-      double pz_muon = pMuon->Pz();
-      double p_muon = TMath::Sqrt(pMuon->Px()*pMuon->Px() + pMuon->Py()*pMuon->Py() + pz_muon*pz_muon);
-      double Theta_Muon_Nu = (pMuon->Vect()).Angle(beam.Vect());
-      double phi_muon = pMuon->Phi();
+      double pt_muon = TMath::Sqrt(pMuon_Lab.Px()*pMuon_Lab.Px() + pMuon_Lab.Py()*pMuon_Lab.Py());
+      double pz_muon = pMuon_Lab.Pz();
+      double p_muon = TMath::Sqrt(pMuon_Lab.Px()*pMuon_Lab.Px() + pMuon_Lab.Py()*pMuon_Lab.Py() + pz_muon*pz_muon);
+      double Theta_Muon_Nu = (pMuon_Lab.Vect()).Angle(beam.Vect());
+      double phi_muon = pMuon_Lab.Phi();
       // if we want weighted events we need to multiply with the TGenPS weight
       double w_ = 1.0 ;//weight;
       hPt_Muon->Fill(pt_muon, w_); 
       hPz_Muon->Fill(pz_muon, w_);
       hPhi_Muon->Fill(phi_muon, w_);
-      hE_Muon->Fill(pMuon->E(), w_);
+      hE_Muon->Fill(pMuon_Lab.E(), w_);
       hQ2->Fill(Q2Lab, w_);
 
 
       // Try to reconstruct the neutrino energy
-      double Eb = 0; // Eb should be included later...
-      double EnuReco =0.5*( mProton*mProton - TMath::Power((mNeutron - Eb), 2) + lepMass*lepMass + 2*(mNeutron - Eb)*pMuon->E())/ (mNeutron - Eb - pMuon->E()+ p_muon*TMath::Cos(Theta_Muon_Nu));
+      double Eb = 0;// BindEnergyPerNucleonParametrization(mAr_A, mAr_Z);//0.0295; 
+      double EnuReco =0.5*( mProton*mProton - TMath::Power((mNeutron - Eb), 2) + lepMass*lepMass + 2*(mNeutron - Eb)*pMuon_Lab.E())/ (mNeutron - Eb - pMuon_Lab.E()+ p_muon*TMath::Cos(Theta_Muon_Nu));
       hEnuReco->Fill(EnuReco, w_);
     }
 
