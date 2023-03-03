@@ -334,9 +334,11 @@ int  main(int argc, char * argv[]){
   TH1F *hE_Muon = new TH1F("hE_muon","MuonE", 200,0,2.1);
   TH1F *hPhi_Muon = new TH1F("hPhi_muon","MuonPhi", 200,0,kPi);
   TH1F *hQ2 = new TH1F("hQ2","Q2", 200,0,2);
-  TH1F *hEnuReco = new TH1F("hEnuReco","Enu Reco", 200,0,4);
+  TH1F *hEnuReco = new TH1F("hEnuReco","Enu Reco", 250,0,10);
 
-  Int_t Nevents = 100;
+  TFile * outfile = new TFile("output.root", "RECREATE");
+  
+  Int_t Nevents = 10000;
   Int_t Nacc = 0.0;
   for (Int_t nEv=0;nEv<Nevents;nEv++) {
   
@@ -571,11 +573,6 @@ int  main(int argc, char * argv[]){
 
     if(accept){
       Nacc += 1;
-      // std::cout << "\r " << nEv <<   std::flush;
-      std::cout << "Diff. xsec: " << xsec << " GeV^{-2} " << ", " << xsec*perGeV2_to_b * barn_to_cm2 << " cm2 / GeV2" << std::endl;
-      double total_xs = TotalCrossSection(Enu, El,  Costheta, phi);
-      std::cout << "Total xsec: " << total_xs * perGeV2_to_b * barn_to_cm2 << " cm^2" << std::endl;
-      break;
 
       // OK, Now we need to boost back the particle(s) into the Lab frame,
       // where the target nucleon is not at rest, but the beam and Nucleus is
@@ -591,8 +588,21 @@ int  main(int argc, char * argv[]){
       double p_muon = TMath::Sqrt(pMuon_Lab.Px()*pMuon_Lab.Px() + pMuon_Lab.Py()*pMuon_Lab.Py() + pz_muon*pz_muon);
       double Theta_Muon_Nu = (pMuon_Lab.Vect()).Angle(beam.Vect());
       double phi_muon = pMuon_Lab.Phi();
+
+      std::cout << "Event: beam, target, outgoing muon, outgoing nucleon" << std::endl;
+      beam.Print();
+      pNi.Print();
+      pMuon_Lab.Print();
+      outNucleon_Lab.Print();
+      std::cout << "----------------------------------" << std::endl;
+      
+      std::cout << "Diff. xsec: " << xsec << " GeV^{-2} " << ", " << xsec*perGeV2_to_b * barn_to_cm2 << " cm2 / GeV2" << std::endl;
+      double total_xs = TotalCrossSection(Enu, El,  Costheta, phi);
+      std::cout << "Total xsec: " << total_xs * perGeV2_to_b * barn_to_cm2 << " cm^2" << std::endl;
+      std::cout << "----------------------------------" << std::endl;
+
       // if we want weighted events we need to multiply with the TGenPS weight
-      double w_ = 1.0;// weight;
+      double w_ = weight;
       hPt_Muon->Fill(pt_muon, w_); 
       hPz_Muon->Fill(pz_muon, w_);
       hPhi_Muon->Fill(phi_muon, w_);
@@ -610,7 +620,7 @@ int  main(int argc, char * argv[]){
   std::cout << std::endl;
 
   // TCanvas* c = new TCanvas("c", "c", 1);
-  // c->SetTitle("TGenPhaseSpace QEL CC nu on Argon");
+  // c->SetTitle("TGenPhaseSpace QEL CC antinu on proton");
   // c->Divide(2,2);
   // c->cd(1);
   // hPt_Muon->Draw("hist");
@@ -624,7 +634,13 @@ int  main(int argc, char * argv[]){
   // TCanvas* c1 = new TCanvas("c1", "c1", 1);
   // hEnuReco->Draw("hist");
 
+  hPt_Muon->Write();
+  hPz_Muon->Write();
+  hQ2->Write();
+  hE_Muon->Write();
+  hEnuReco->Write();
 
+  outfile->Close();
   
   return 0;
 }
