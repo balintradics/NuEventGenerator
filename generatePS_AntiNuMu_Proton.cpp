@@ -91,11 +91,11 @@ struct BoundParms {
 
 
 // Nucleon at rest cross section as a function of the
+// - momentum transfer
 // - neutrino energy
 // - fixed outgoing lepton Energy
 // - angle between neutrino and outgoing lepton in the Lab frame
 // - phi angle of the lepton
-// - Q2p is just a pointer to return the calculated Q2
 double DSigma_dQ2_XSec(double Q2, double Enu, double El, double Costheta, double Phi){
 
     // We  assume to numerically evaluate the LL-Smith cross section
